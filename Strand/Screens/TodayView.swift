@@ -47,6 +47,7 @@ struct TodayView: View {
                     )
                 }
                 heroSection
+                readinessSection
                 metricsSection
                 workoutsSection
                 sourcesSection
@@ -70,6 +71,73 @@ struct TodayView: View {
             }
         }
         .animation(.easeOut(duration: 0.18), value: showingSupport)
+    }
+
+    // MARK: Readiness — on-device training-readiness synthesis (HRV / resting-HR / load).
+
+    @ViewBuilder
+    private var readinessSection: some View {
+        let r = ReadinessEngine.evaluate(days: repo.days)
+        if r.level != .insufficient {
+            VStack(alignment: .leading, spacing: NoopMetrics.gap) {
+                SectionHeader("Readiness", overline: "Should you push today?")
+                NoopCard {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 10) {
+                            Circle().fill(readinessColor(r.level)).frame(width: 10, height: 10)
+                            Text(r.headline).font(StrandFont.headline)
+                                .foregroundStyle(StrandPalette.textPrimary)
+                            Spacer()
+                            if let acwr = r.acwr {
+                                Text("load \(String(format: "%.2f", acwr))")
+                                    .font(StrandFont.captionNumber)
+                                    .foregroundStyle(StrandPalette.textTertiary)
+                                    .help("Acute (7-day) vs chronic (28-day) training load. 0.8–1.3 is the sweet spot.")
+                            }
+                        }
+                        Text(r.summary).font(StrandFont.subhead)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if !r.signals.isEmpty {
+                            Divider().overlay(StrandPalette.hairline)
+                            ForEach(r.signals, id: \.key) { s in
+                                HStack(alignment: .top, spacing: 8) {
+                                    Circle().fill(flagColor(s.flag)).frame(width: 7, height: 7)
+                                        .padding(.top, 5)
+                                    Text(s.label).font(StrandFont.caption)
+                                        .foregroundStyle(StrandPalette.textSecondary)
+                                        .frame(width: 104, alignment: .leading)
+                                    Text(s.detail).font(StrandFont.caption)
+                                        .foregroundStyle(StrandPalette.textTertiary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                    Spacer(minLength: 0)
+                                }
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+    }
+
+    private func readinessColor(_ l: ReadinessEngine.Level) -> Color {
+        switch l {
+        case .primed:       return StrandPalette.accent
+        case .balanced:     return StrandPalette.statusPositive
+        case .strained:     return StrandPalette.statusWarning
+        case .rundown:      return StrandPalette.metricRose
+        case .insufficient: return StrandPalette.textTertiary
+        }
+    }
+
+    private func flagColor(_ f: ReadinessEngine.Flag) -> Color {
+        switch f {
+        case .good:    return StrandPalette.accent
+        case .neutral: return StrandPalette.textTertiary
+        case .watch:   return StrandPalette.statusWarning
+        case .bad:     return StrandPalette.metricRose
+        }
     }
 
     // MARK: (a) HERO — RecoveryRing + Synthesis, filling the width equally.

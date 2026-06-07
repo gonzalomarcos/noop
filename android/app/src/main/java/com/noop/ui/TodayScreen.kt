@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
@@ -21,12 +22,15 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.noop.analytics.ReadinessEngine
 import com.noop.data.DailyMetric
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -106,6 +110,10 @@ fun TodayScreen(viewModel: AppViewModel, onSupport: () -> Unit = {}) {
                 statusColor = today?.recovery?.let { Palette.recoveryColor(it) } ?: Palette.textTertiary,
             )
         }
+
+        // READINESS — on-device training-readiness synthesis (HRV / resting-HR / load).
+        // Mirrors the macOS readinessSection: rendered only once there's enough history.
+        ReadinessSection(days)
 
         // METRICS — uniform tile grid (two columns), each tile with a 14-day sparkline.
         Spacer(Modifier.padding(top = (Metrics.sectionGap - 20.dp) / 2))
@@ -248,6 +256,107 @@ private fun MetricGrid(d: DailyMetric?, w: Window) {
             }
         }
     }
+}
+
+// MARK: - Readiness card (ported from TodayView.swift readinessSection)
+//
+// On-device training-readiness synthesis. Calls the analytics ReadinessEngine over the
+// view model's day history and renders the macOS card: a colored level dot + headline,
+// an optional acute:chronic "load X.XX" read-out, the plain-English summary, then one
+// row per driving signal (a small flag-colored dot + label + detail). The whole card is
+// suppressed until there is enough history (level == INSUFFICIENT), matching macOS.
+
+@Composable
+private fun ReadinessSection(days: List<DailyMetric>) {
+    val readiness = remember(days) { ReadinessEngine.evaluate(days) }
+    if (readiness.level == ReadinessEngine.Level.INSUFFICIENT) return
+
+    SectionHeader("Readiness", overline = "Should you push today?")
+    NoopCard {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            // Headline row: level dot + headline, then the ACWR load read-out.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .clip(CircleShape)
+                        .background(readinessColor(readiness.level)),
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    readiness.headline,
+                    style = NoopType.headline,
+                    color = Palette.textPrimary,
+                    modifier = Modifier.weight(1f),
+                )
+                readiness.acwr?.let { acwr ->
+                    Text(
+                        "load ${String.format(Locale.US, "%.2f", acwr)}",
+                        style = NoopType.captionNumber,
+                        color = Palette.textTertiary,
+                    )
+                }
+            }
+
+            // Plain-English summary.
+            Text(
+                readiness.summary,
+                style = NoopType.subhead,
+                color = Palette.textSecondary,
+            )
+
+            // Per-signal rows: flag dot + fixed-width label + detail.
+            if (readiness.signals.isNotEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .background(Palette.hairline),
+                )
+                readiness.signals.forEach { signal ->
+                    Row(verticalAlignment = Alignment.Top) {
+                        Box(
+                            modifier = Modifier
+                                .padding(top = 5.dp)
+                                .size(7.dp)
+                                .clip(CircleShape)
+                                .background(flagColor(signal.flag)),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            signal.label,
+                            style = NoopType.caption,
+                            color = Palette.textSecondary,
+                            modifier = Modifier.width(104.dp),
+                        )
+                        Text(
+                            signal.detail,
+                            style = NoopType.caption,
+                            color = Palette.textTertiary,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Level → color, mirroring TodayView.readinessColor. */
+private fun readinessColor(level: ReadinessEngine.Level): Color = when (level) {
+    ReadinessEngine.Level.PRIMED -> Palette.accent
+    ReadinessEngine.Level.BALANCED -> Palette.statusPositive
+    ReadinessEngine.Level.STRAINED -> Palette.statusWarning
+    ReadinessEngine.Level.RUNDOWN -> Palette.metricRose
+    ReadinessEngine.Level.INSUFFICIENT -> Palette.textTertiary
+}
+
+/** Flag → color, mirroring TodayView.flagColor. */
+private fun flagColor(flag: ReadinessEngine.Flag): Color = when (flag) {
+    ReadinessEngine.Flag.GOOD -> Palette.accent
+    ReadinessEngine.Flag.NEUTRAL -> Palette.textTertiary
+    ReadinessEngine.Flag.WATCH -> Palette.statusWarning
+    ReadinessEngine.Flag.BAD -> Palette.metricRose
 }
 
 // MARK: - SparkStatTile
